@@ -13,7 +13,7 @@ let package = Package(
         .binaryTarget(
             name: "SapientFFI",
             url: "https://github.com/SkidGod4444/sapient/releases/download/v0.6.0/SapientFFI.xcframework.zip",
-            checksum: "eac0a19f131bdc1d448c3e50458288ccd49a1b57f1be353bda20a86e984db21a"),
+            checksum: "4edcf60bdcd4f676d140561a16d8084dccd6eb6c727f86ae205c8a20add4578f"),
         .target(
             name: "Sapient",
             dependencies: ["SapientFFI"],
