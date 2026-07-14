@@ -10,7 +10,7 @@ streaming with cancel.
 Xcode → *File → Add Package Dependencies* → paste this repo's URL:
 
 ```
-https://github.com/openstackhq/sapient-swift
+https://github.com/openhorizon-labs/sapient-swift
 ```
 
 `Package.swift` points a checksum-pinned `binaryTarget` at the matching
