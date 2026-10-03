@@ -422,6 +422,22 @@ fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
+    typealias FfiType = UInt64
+    typealias SwiftType = UInt64
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt64 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterFloat: FfiConverterPrimitive {
     typealias FfiType = Float
     typealias SwiftType = Float
@@ -432,6 +448,22 @@ fileprivate struct FfiConverterFloat: FfiConverterPrimitive {
 
     public static func write(_ value: Float, into buf: inout [UInt8]) {
         writeFloat(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
+    typealias FfiType = Double
+    typealias SwiftType = Double
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Double {
+        return try lift(readDouble(&buf))
+    }
+
+    public static func write(_ value: Double, into buf: inout [UInt8]) {
+        writeDouble(&buf, lower(value))
     }
 }
 
@@ -504,6 +536,381 @@ fileprivate struct FfiConverterString: FfiConverter {
 
 
 /**
+ * Progress callback for [`LlmSession::benchmark`]: called after every run
+ * (warm-up included). Return `false` to stop after the current run.
+ */
+public protocol BenchmarkListener: AnyObject, Sendable {
+    
+    func onRun(run: BenchmarkRun, completed: UInt32, total: UInt32)  -> Bool
+    
+}
+/**
+ * Progress callback for [`LlmSession::benchmark`]: called after every run
+ * (warm-up included). Return `false` to stop after the current run.
+ */
+open class BenchmarkListenerImpl: BenchmarkListener, @unchecked Sendable {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_sapient_ffi_fn_clone_benchmarklistener(self.pointer, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_sapient_ffi_fn_free_benchmarklistener(pointer, $0) }
+    }
+
+    
+
+    
+open func onRun(run: BenchmarkRun, completed: UInt32, total: UInt32) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_sapient_ffi_fn_method_benchmarklistener_on_run(self.uniffiClonePointer(),
+        FfiConverterTypeBenchmarkRun_lower(run),
+        FfiConverterUInt32.lower(completed),
+        FfiConverterUInt32.lower(total),$0
+    )
+})
+}
+    
+
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceBenchmarkListener {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // This creates 1-element array, since this seems to be the only way to construct a const
+    // pointer that we can pass to the Rust code.
+    static let vtable: [UniffiVTableCallbackInterfaceBenchmarkListener] = [UniffiVTableCallbackInterfaceBenchmarkListener(
+        onRun: { (
+            uniffiHandle: UInt64,
+            run: RustBuffer,
+            completed: UInt32,
+            total: UInt32,
+            uniffiOutReturn: UnsafeMutablePointer<Int8>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> Bool in
+                guard let uniffiObj = try? FfiConverterTypeBenchmarkListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onRun(
+                     run: try FfiConverterTypeBenchmarkRun_lift(run),
+                     completed: try FfiConverterUInt32.lift(completed),
+                     total: try FfiConverterUInt32.lift(total)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterBool.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterTypeBenchmarkListener.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface BenchmarkListener: handle missing in uniffiFree")
+            }
+        }
+    )]
+}
+
+private func uniffiCallbackInitBenchmarkListener() {
+    uniffi_sapient_ffi_fn_init_callback_vtable_benchmarklistener(UniffiCallbackInterfaceBenchmarkListener.vtable)
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBenchmarkListener: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<BenchmarkListener>()
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = BenchmarkListener
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> BenchmarkListener {
+        return BenchmarkListenerImpl(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: BenchmarkListener) -> UnsafeMutableRawPointer {
+        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: handleMap.insert(obj: value))) else {
+            fatalError("Cast to UnsafeMutableRawPointer failed")
+        }
+        return ptr
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BenchmarkListener {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: BenchmarkListener, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBenchmarkListener_lift(_ pointer: UnsafeMutableRawPointer) throws -> BenchmarkListener {
+    return try FfiConverterTypeBenchmarkListener.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBenchmarkListener_lower(_ value: BenchmarkListener) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeBenchmarkListener.lower(value)
+}
+
+
+
+
+
+
+/**
+ * Progress callback for [`download_model`], called about four times a
+ * second and once at the end. `total_bytes` is 0 when the Hub didn't report
+ * sizes. Return `false` to cancel.
+ */
+public protocol DownloadListener: AnyObject, Sendable {
+    
+    func onProgress(downloadedBytes: UInt64, totalBytes: UInt64)  -> Bool
+    
+}
+/**
+ * Progress callback for [`download_model`], called about four times a
+ * second and once at the end. `total_bytes` is 0 when the Hub didn't report
+ * sizes. Return `false` to cancel.
+ */
+open class DownloadListenerImpl: DownloadListener, @unchecked Sendable {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_sapient_ffi_fn_clone_downloadlistener(self.pointer, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_sapient_ffi_fn_free_downloadlistener(pointer, $0) }
+    }
+
+    
+
+    
+open func onProgress(downloadedBytes: UInt64, totalBytes: UInt64) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_sapient_ffi_fn_method_downloadlistener_on_progress(self.uniffiClonePointer(),
+        FfiConverterUInt64.lower(downloadedBytes),
+        FfiConverterUInt64.lower(totalBytes),$0
+    )
+})
+}
+    
+
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceDownloadListener {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // This creates 1-element array, since this seems to be the only way to construct a const
+    // pointer that we can pass to the Rust code.
+    static let vtable: [UniffiVTableCallbackInterfaceDownloadListener] = [UniffiVTableCallbackInterfaceDownloadListener(
+        onProgress: { (
+            uniffiHandle: UInt64,
+            downloadedBytes: UInt64,
+            totalBytes: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<Int8>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> Bool in
+                guard let uniffiObj = try? FfiConverterTypeDownloadListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onProgress(
+                     downloadedBytes: try FfiConverterUInt64.lift(downloadedBytes),
+                     totalBytes: try FfiConverterUInt64.lift(totalBytes)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterBool.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterTypeDownloadListener.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface DownloadListener: handle missing in uniffiFree")
+            }
+        }
+    )]
+}
+
+private func uniffiCallbackInitDownloadListener() {
+    uniffi_sapient_ffi_fn_init_callback_vtable_downloadlistener(UniffiCallbackInterfaceDownloadListener.vtable)
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDownloadListener: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<DownloadListener>()
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = DownloadListener
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> DownloadListener {
+        return DownloadListenerImpl(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: DownloadListener) -> UnsafeMutableRawPointer {
+        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: handleMap.insert(obj: value))) else {
+            fatalError("Cast to UnsafeMutableRawPointer failed")
+        }
+        return ptr
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DownloadListener {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: DownloadListener, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDownloadListener_lift(_ pointer: UnsafeMutableRawPointer) throws -> DownloadListener {
+    return try FfiConverterTypeDownloadListener.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDownloadListener_lower(_ value: DownloadListener) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeDownloadListener.lower(value)
+}
+
+
+
+
+
+
+/**
  * A loaded chat model plus its conversation state. Thread-safe; generation
  * calls on the same session serialize on the engine's internal lock.
  */
@@ -513,6 +920,21 @@ public protocol LlmSessionProtocol: AnyObject, Sendable {
      * Human-readable resolved backend (e.g. `CPU`, `Metal GPU`).
      */
     func backendLabel()  -> String
+    
+    /**
+     * Measure this session's model: `warmup` + `runs` greedy generations of
+     * `max_tokens` tokens, same definitions as `sapient bench-llm`. Uses the
+     * already-loaded model (no second copy in memory) and leaves the chat
+     * history untouched; the next chat turn re-prefills its history, because
+     * the benchmark overwrites the engine's cache. Blocking.
+     */
+    func benchmark(options: BenchmarkOptions, listener: BenchmarkListener?) throws  -> BenchmarkReport
+    
+    /**
+     * Async version of [`Self::benchmark`]; runs on the engine's blocking
+     * pool and never blocks the caller.
+     */
+    func benchmarkAsync(options: BenchmarkOptions, listener: BenchmarkListener?) async throws  -> BenchmarkReport
     
     /**
      * One blocking chat turn: appends the user message, generates the full
@@ -562,9 +984,19 @@ public protocol LlmSessionProtocol: AnyObject, Sendable {
     func chatStreamAsync(userMessage: String, listener: TokenListener) async throws  -> String
     
     /**
+     * The conversation window the engine allocated, in tokens.
+     */
+    func contextLength()  -> UInt32
+    
+    /**
      * Whether the weights are memory-mapped (RSS ≈ working set, not file size).
      */
     func isMmap()  -> Bool
+    
+    /**
+     * How long `load` took (download included on first use), in milliseconds.
+     */
+    func loadTimeMs()  -> UInt64
     
     /**
      * The model alias this session was created with.
@@ -661,6 +1093,43 @@ open func backendLabel() -> String  {
     uniffi_sapient_ffi_fn_method_llmsession_backend_label(self.uniffiClonePointer(),$0
     )
 })
+}
+    
+    /**
+     * Measure this session's model: `warmup` + `runs` greedy generations of
+     * `max_tokens` tokens, same definitions as `sapient bench-llm`. Uses the
+     * already-loaded model (no second copy in memory) and leaves the chat
+     * history untouched; the next chat turn re-prefills its history, because
+     * the benchmark overwrites the engine's cache. Blocking.
+     */
+open func benchmark(options: BenchmarkOptions, listener: BenchmarkListener?)throws  -> BenchmarkReport  {
+    return try  FfiConverterTypeBenchmarkReport_lift(try rustCallWithError(FfiConverterTypeSapientError_lift) {
+    uniffi_sapient_ffi_fn_method_llmsession_benchmark(self.uniffiClonePointer(),
+        FfiConverterTypeBenchmarkOptions_lower(options),
+        FfiConverterOptionTypeBenchmarkListener.lower(listener),$0
+    )
+})
+}
+    
+    /**
+     * Async version of [`Self::benchmark`]; runs on the engine's blocking
+     * pool and never blocks the caller.
+     */
+open func benchmarkAsync(options: BenchmarkOptions, listener: BenchmarkListener?)async throws  -> BenchmarkReport  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_sapient_ffi_fn_method_llmsession_benchmark_async(
+                    self.uniffiClonePointer(),
+                    FfiConverterTypeBenchmarkOptions_lower(options),FfiConverterOptionTypeBenchmarkListener.lower(listener)
+                )
+            },
+            pollFunc: ffi_sapient_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_sapient_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_sapient_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeBenchmarkReport_lift,
+            errorHandler: FfiConverterTypeSapientError_lift
+        )
 }
     
     /**
@@ -769,11 +1238,31 @@ open func chatStreamAsync(userMessage: String, listener: TokenListener)async thr
 }
     
     /**
+     * The conversation window the engine allocated, in tokens.
+     */
+open func contextLength() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_sapient_ffi_fn_method_llmsession_context_length(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
      * Whether the weights are memory-mapped (RSS ≈ working set, not file size).
      */
 open func isMmap() -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_sapient_ffi_fn_method_llmsession_is_mmap(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * How long `load` took (download included on first use), in milliseconds.
+     */
+open func loadTimeMs() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_sapient_ffi_fn_method_llmsession_load_time_ms(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -1049,6 +1538,557 @@ public func FfiConverterTypeTokenListener_lower(_ value: TokenListener) -> Unsaf
 
 
 /**
+ * Settings for [`LlmSession::benchmark`]. Defaults match `sapient bench-llm`.
+ */
+public struct BenchmarkOptions {
+    /**
+     * User message to answer; it is chat-templated like a normal turn. Ask
+     * for a long answer so runs reach `max_tokens` (see `hit_eos`).
+     */
+    public var prompt: String
+    /**
+     * Tokens to generate per run.
+     */
+    public var maxTokens: UInt32
+    /**
+     * Measured runs (summarized).
+     */
+    public var runs: UInt32
+    /**
+     * Warm-up runs before measuring (reported, never summarized).
+     */
+    public var warmup: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * User message to answer; it is chat-templated like a normal turn. Ask
+         * for a long answer so runs reach `max_tokens` (see `hit_eos`).
+         */prompt: String = "Write a detailed explanation of how a CPU executes a program, step by step.", 
+        /**
+         * Tokens to generate per run.
+         */maxTokens: UInt32 = UInt32(128), 
+        /**
+         * Measured runs (summarized).
+         */runs: UInt32 = UInt32(3), 
+        /**
+         * Warm-up runs before measuring (reported, never summarized).
+         */warmup: UInt32 = UInt32(1)) {
+        self.prompt = prompt
+        self.maxTokens = maxTokens
+        self.runs = runs
+        self.warmup = warmup
+    }
+}
+
+#if compiler(>=6)
+extension BenchmarkOptions: Sendable {}
+#endif
+
+
+extension BenchmarkOptions: Equatable, Hashable {
+    public static func ==(lhs: BenchmarkOptions, rhs: BenchmarkOptions) -> Bool {
+        if lhs.prompt != rhs.prompt {
+            return false
+        }
+        if lhs.maxTokens != rhs.maxTokens {
+            return false
+        }
+        if lhs.runs != rhs.runs {
+            return false
+        }
+        if lhs.warmup != rhs.warmup {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(prompt)
+        hasher.combine(maxTokens)
+        hasher.combine(runs)
+        hasher.combine(warmup)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBenchmarkOptions: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BenchmarkOptions {
+        return
+            try BenchmarkOptions(
+                prompt: FfiConverterString.read(from: &buf), 
+                maxTokens: FfiConverterUInt32.read(from: &buf), 
+                runs: FfiConverterUInt32.read(from: &buf), 
+                warmup: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: BenchmarkOptions, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.prompt, into: &buf)
+        FfiConverterUInt32.write(value.maxTokens, into: &buf)
+        FfiConverterUInt32.write(value.runs, into: &buf)
+        FfiConverterUInt32.write(value.warmup, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBenchmarkOptions_lift(_ buf: RustBuffer) throws -> BenchmarkOptions {
+    return try FfiConverterTypeBenchmarkOptions.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBenchmarkOptions_lower(_ value: BenchmarkOptions) -> RustBuffer {
+    return FfiConverterTypeBenchmarkOptions.lower(value)
+}
+
+
+/**
+ * Everything [`LlmSession::benchmark`] measured.
+ */
+public struct BenchmarkReport {
+    public var model: String
+    public var backendLabel: String
+    public var isMmap: Bool
+    /**
+     * Allocated conversation window, in tokens.
+     */
+    public var contextLength: UInt32
+    /**
+     * The session's load time (download included on first use).
+     */
+    public var loadTimeMs: UInt64
+    public var promptTokens: UInt32
+    public var maxTokens: UInt32
+    public var warmupRuns: [BenchmarkRun]
+    public var runs: [BenchmarkRun]
+    /**
+     * Summary over `runs` (zero when there are none).
+     */
+    public var meanTtftMs: UInt64
+    public var meanDecodeTokensPerSec: Double
+    public var minDecodeTokensPerSec: Double
+    public var maxDecodeTokensPerSec: Double
+    public var meanPrefillTokensPerSec: Double
+    /**
+     * Highest process footprint so far (includes the model load), in bytes.
+     */
+    public var peakFootprintBytes: UInt64?
+    public var thermalStart: ThermalLevel
+    public var thermalEnd: ThermalLevel
+    /**
+     * The listener asked to stop early; the report covers the runs that finished.
+     */
+    public var cancelled: Bool
+    public var sapientVersion: String
+    /**
+     * How the numbers are defined, for anyone reading an exported report.
+     */
+    public var method: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(model: String, backendLabel: String, isMmap: Bool, 
+        /**
+         * Allocated conversation window, in tokens.
+         */contextLength: UInt32, 
+        /**
+         * The session's load time (download included on first use).
+         */loadTimeMs: UInt64, promptTokens: UInt32, maxTokens: UInt32, warmupRuns: [BenchmarkRun], runs: [BenchmarkRun], 
+        /**
+         * Summary over `runs` (zero when there are none).
+         */meanTtftMs: UInt64, meanDecodeTokensPerSec: Double, minDecodeTokensPerSec: Double, maxDecodeTokensPerSec: Double, meanPrefillTokensPerSec: Double, 
+        /**
+         * Highest process footprint so far (includes the model load), in bytes.
+         */peakFootprintBytes: UInt64?, thermalStart: ThermalLevel, thermalEnd: ThermalLevel, 
+        /**
+         * The listener asked to stop early; the report covers the runs that finished.
+         */cancelled: Bool, sapientVersion: String, 
+        /**
+         * How the numbers are defined, for anyone reading an exported report.
+         */method: String) {
+        self.model = model
+        self.backendLabel = backendLabel
+        self.isMmap = isMmap
+        self.contextLength = contextLength
+        self.loadTimeMs = loadTimeMs
+        self.promptTokens = promptTokens
+        self.maxTokens = maxTokens
+        self.warmupRuns = warmupRuns
+        self.runs = runs
+        self.meanTtftMs = meanTtftMs
+        self.meanDecodeTokensPerSec = meanDecodeTokensPerSec
+        self.minDecodeTokensPerSec = minDecodeTokensPerSec
+        self.maxDecodeTokensPerSec = maxDecodeTokensPerSec
+        self.meanPrefillTokensPerSec = meanPrefillTokensPerSec
+        self.peakFootprintBytes = peakFootprintBytes
+        self.thermalStart = thermalStart
+        self.thermalEnd = thermalEnd
+        self.cancelled = cancelled
+        self.sapientVersion = sapientVersion
+        self.method = method
+    }
+}
+
+#if compiler(>=6)
+extension BenchmarkReport: Sendable {}
+#endif
+
+
+extension BenchmarkReport: Equatable, Hashable {
+    public static func ==(lhs: BenchmarkReport, rhs: BenchmarkReport) -> Bool {
+        if lhs.model != rhs.model {
+            return false
+        }
+        if lhs.backendLabel != rhs.backendLabel {
+            return false
+        }
+        if lhs.isMmap != rhs.isMmap {
+            return false
+        }
+        if lhs.contextLength != rhs.contextLength {
+            return false
+        }
+        if lhs.loadTimeMs != rhs.loadTimeMs {
+            return false
+        }
+        if lhs.promptTokens != rhs.promptTokens {
+            return false
+        }
+        if lhs.maxTokens != rhs.maxTokens {
+            return false
+        }
+        if lhs.warmupRuns != rhs.warmupRuns {
+            return false
+        }
+        if lhs.runs != rhs.runs {
+            return false
+        }
+        if lhs.meanTtftMs != rhs.meanTtftMs {
+            return false
+        }
+        if lhs.meanDecodeTokensPerSec != rhs.meanDecodeTokensPerSec {
+            return false
+        }
+        if lhs.minDecodeTokensPerSec != rhs.minDecodeTokensPerSec {
+            return false
+        }
+        if lhs.maxDecodeTokensPerSec != rhs.maxDecodeTokensPerSec {
+            return false
+        }
+        if lhs.meanPrefillTokensPerSec != rhs.meanPrefillTokensPerSec {
+            return false
+        }
+        if lhs.peakFootprintBytes != rhs.peakFootprintBytes {
+            return false
+        }
+        if lhs.thermalStart != rhs.thermalStart {
+            return false
+        }
+        if lhs.thermalEnd != rhs.thermalEnd {
+            return false
+        }
+        if lhs.cancelled != rhs.cancelled {
+            return false
+        }
+        if lhs.sapientVersion != rhs.sapientVersion {
+            return false
+        }
+        if lhs.method != rhs.method {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(model)
+        hasher.combine(backendLabel)
+        hasher.combine(isMmap)
+        hasher.combine(contextLength)
+        hasher.combine(loadTimeMs)
+        hasher.combine(promptTokens)
+        hasher.combine(maxTokens)
+        hasher.combine(warmupRuns)
+        hasher.combine(runs)
+        hasher.combine(meanTtftMs)
+        hasher.combine(meanDecodeTokensPerSec)
+        hasher.combine(minDecodeTokensPerSec)
+        hasher.combine(maxDecodeTokensPerSec)
+        hasher.combine(meanPrefillTokensPerSec)
+        hasher.combine(peakFootprintBytes)
+        hasher.combine(thermalStart)
+        hasher.combine(thermalEnd)
+        hasher.combine(cancelled)
+        hasher.combine(sapientVersion)
+        hasher.combine(method)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBenchmarkReport: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BenchmarkReport {
+        return
+            try BenchmarkReport(
+                model: FfiConverterString.read(from: &buf), 
+                backendLabel: FfiConverterString.read(from: &buf), 
+                isMmap: FfiConverterBool.read(from: &buf), 
+                contextLength: FfiConverterUInt32.read(from: &buf), 
+                loadTimeMs: FfiConverterUInt64.read(from: &buf), 
+                promptTokens: FfiConverterUInt32.read(from: &buf), 
+                maxTokens: FfiConverterUInt32.read(from: &buf), 
+                warmupRuns: FfiConverterSequenceTypeBenchmarkRun.read(from: &buf), 
+                runs: FfiConverterSequenceTypeBenchmarkRun.read(from: &buf), 
+                meanTtftMs: FfiConverterUInt64.read(from: &buf), 
+                meanDecodeTokensPerSec: FfiConverterDouble.read(from: &buf), 
+                minDecodeTokensPerSec: FfiConverterDouble.read(from: &buf), 
+                maxDecodeTokensPerSec: FfiConverterDouble.read(from: &buf), 
+                meanPrefillTokensPerSec: FfiConverterDouble.read(from: &buf), 
+                peakFootprintBytes: FfiConverterOptionUInt64.read(from: &buf), 
+                thermalStart: FfiConverterTypeThermalLevel.read(from: &buf), 
+                thermalEnd: FfiConverterTypeThermalLevel.read(from: &buf), 
+                cancelled: FfiConverterBool.read(from: &buf), 
+                sapientVersion: FfiConverterString.read(from: &buf), 
+                method: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: BenchmarkReport, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.model, into: &buf)
+        FfiConverterString.write(value.backendLabel, into: &buf)
+        FfiConverterBool.write(value.isMmap, into: &buf)
+        FfiConverterUInt32.write(value.contextLength, into: &buf)
+        FfiConverterUInt64.write(value.loadTimeMs, into: &buf)
+        FfiConverterUInt32.write(value.promptTokens, into: &buf)
+        FfiConverterUInt32.write(value.maxTokens, into: &buf)
+        FfiConverterSequenceTypeBenchmarkRun.write(value.warmupRuns, into: &buf)
+        FfiConverterSequenceTypeBenchmarkRun.write(value.runs, into: &buf)
+        FfiConverterUInt64.write(value.meanTtftMs, into: &buf)
+        FfiConverterDouble.write(value.meanDecodeTokensPerSec, into: &buf)
+        FfiConverterDouble.write(value.minDecodeTokensPerSec, into: &buf)
+        FfiConverterDouble.write(value.maxDecodeTokensPerSec, into: &buf)
+        FfiConverterDouble.write(value.meanPrefillTokensPerSec, into: &buf)
+        FfiConverterOptionUInt64.write(value.peakFootprintBytes, into: &buf)
+        FfiConverterTypeThermalLevel.write(value.thermalStart, into: &buf)
+        FfiConverterTypeThermalLevel.write(value.thermalEnd, into: &buf)
+        FfiConverterBool.write(value.cancelled, into: &buf)
+        FfiConverterString.write(value.sapientVersion, into: &buf)
+        FfiConverterString.write(value.method, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBenchmarkReport_lift(_ buf: RustBuffer) throws -> BenchmarkReport {
+    return try FfiConverterTypeBenchmarkReport.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBenchmarkReport_lower(_ value: BenchmarkReport) -> RustBuffer {
+    return FfiConverterTypeBenchmarkReport.lower(value)
+}
+
+
+/**
+ * One timed generation.
+ */
+public struct BenchmarkRun {
+    /**
+     * 1-based index within its group (warm-up or measured).
+     */
+    public var index: UInt32
+    /**
+     * Warm-up runs are excluded from the summary.
+     */
+    public var warmup: Bool
+    /**
+     * Prompt prefill + first token, in milliseconds.
+     */
+    public var ttftMs: UInt64
+    /**
+     * Whole run, in milliseconds.
+     */
+    public var elapsedMs: UInt64
+    /**
+     * Tokens generated (exact engine count).
+     */
+    public var tokens: UInt32
+    /**
+     * Decode-only rate: `(tokens − 1) / (t_last − t_first)`.
+     */
+    public var decodeTokensPerSec: Double
+    /**
+     * `prompt_tokens / TTFT`.
+     */
+    public var prefillTokensPerSec: Double
+    /**
+     * Ended on end-of-turn before `max_tokens`, so its rate covers fewer tokens.
+     */
+    public var hitEos: Bool
+    /**
+     * Process memory footprint right after this run, in bytes, if known.
+     */
+    public var footprintBytes: UInt64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * 1-based index within its group (warm-up or measured).
+         */index: UInt32, 
+        /**
+         * Warm-up runs are excluded from the summary.
+         */warmup: Bool, 
+        /**
+         * Prompt prefill + first token, in milliseconds.
+         */ttftMs: UInt64, 
+        /**
+         * Whole run, in milliseconds.
+         */elapsedMs: UInt64, 
+        /**
+         * Tokens generated (exact engine count).
+         */tokens: UInt32, 
+        /**
+         * Decode-only rate: `(tokens − 1) / (t_last − t_first)`.
+         */decodeTokensPerSec: Double, 
+        /**
+         * `prompt_tokens / TTFT`.
+         */prefillTokensPerSec: Double, 
+        /**
+         * Ended on end-of-turn before `max_tokens`, so its rate covers fewer tokens.
+         */hitEos: Bool, 
+        /**
+         * Process memory footprint right after this run, in bytes, if known.
+         */footprintBytes: UInt64?) {
+        self.index = index
+        self.warmup = warmup
+        self.ttftMs = ttftMs
+        self.elapsedMs = elapsedMs
+        self.tokens = tokens
+        self.decodeTokensPerSec = decodeTokensPerSec
+        self.prefillTokensPerSec = prefillTokensPerSec
+        self.hitEos = hitEos
+        self.footprintBytes = footprintBytes
+    }
+}
+
+#if compiler(>=6)
+extension BenchmarkRun: Sendable {}
+#endif
+
+
+extension BenchmarkRun: Equatable, Hashable {
+    public static func ==(lhs: BenchmarkRun, rhs: BenchmarkRun) -> Bool {
+        if lhs.index != rhs.index {
+            return false
+        }
+        if lhs.warmup != rhs.warmup {
+            return false
+        }
+        if lhs.ttftMs != rhs.ttftMs {
+            return false
+        }
+        if lhs.elapsedMs != rhs.elapsedMs {
+            return false
+        }
+        if lhs.tokens != rhs.tokens {
+            return false
+        }
+        if lhs.decodeTokensPerSec != rhs.decodeTokensPerSec {
+            return false
+        }
+        if lhs.prefillTokensPerSec != rhs.prefillTokensPerSec {
+            return false
+        }
+        if lhs.hitEos != rhs.hitEos {
+            return false
+        }
+        if lhs.footprintBytes != rhs.footprintBytes {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(index)
+        hasher.combine(warmup)
+        hasher.combine(ttftMs)
+        hasher.combine(elapsedMs)
+        hasher.combine(tokens)
+        hasher.combine(decodeTokensPerSec)
+        hasher.combine(prefillTokensPerSec)
+        hasher.combine(hitEos)
+        hasher.combine(footprintBytes)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBenchmarkRun: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BenchmarkRun {
+        return
+            try BenchmarkRun(
+                index: FfiConverterUInt32.read(from: &buf), 
+                warmup: FfiConverterBool.read(from: &buf), 
+                ttftMs: FfiConverterUInt64.read(from: &buf), 
+                elapsedMs: FfiConverterUInt64.read(from: &buf), 
+                tokens: FfiConverterUInt32.read(from: &buf), 
+                decodeTokensPerSec: FfiConverterDouble.read(from: &buf), 
+                prefillTokensPerSec: FfiConverterDouble.read(from: &buf), 
+                hitEos: FfiConverterBool.read(from: &buf), 
+                footprintBytes: FfiConverterOptionUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: BenchmarkRun, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.index, into: &buf)
+        FfiConverterBool.write(value.warmup, into: &buf)
+        FfiConverterUInt64.write(value.ttftMs, into: &buf)
+        FfiConverterUInt64.write(value.elapsedMs, into: &buf)
+        FfiConverterUInt32.write(value.tokens, into: &buf)
+        FfiConverterDouble.write(value.decodeTokensPerSec, into: &buf)
+        FfiConverterDouble.write(value.prefillTokensPerSec, into: &buf)
+        FfiConverterBool.write(value.hitEos, into: &buf)
+        FfiConverterOptionUInt64.write(value.footprintBytes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBenchmarkRun_lift(_ buf: RustBuffer) throws -> BenchmarkRun {
+    return try FfiConverterTypeBenchmarkRun.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBenchmarkRun_lower(_ value: BenchmarkRun) -> RustBuffer {
+    return FfiConverterTypeBenchmarkRun.lower(value)
+}
+
+
+/**
  * Options for creating an [`LlmSession`]. All fields have defaults, so
  * foreign callers can construct this with only the fields they care about.
  */
@@ -1079,10 +2119,16 @@ public struct GenerationOptions {
      */
     public var systemPrompt: String?
     /**
-     * Backend override: `auto` (default), `cpu`, `metal`, `wgpu`. Mobile
-     * static libs are CPU-only today, so `auto` resolves to CPU there.
+     * Backend override: `auto` (default), `cpu`, `metal`, `wgpu`. `auto`
+     * uses the GPU when the library was built with it and one is present.
      */
     public var backend: String?
+    /**
+     * Conversation window to allocate, in tokens (the KV cache). Unset =
+     * 8192, or 3072 for models above 1.5B parameters on iOS/Android to stay
+     * inside the per-app memory limit. Capped at what the model supports.
+     */
+    public var contextLength: UInt32?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -1107,9 +2153,14 @@ public struct GenerationOptions {
          * Optional system prompt seeded at the start of the conversation.
          */systemPrompt: String? = nil, 
         /**
-         * Backend override: `auto` (default), `cpu`, `metal`, `wgpu`. Mobile
-         * static libs are CPU-only today, so `auto` resolves to CPU there.
-         */backend: String? = nil) {
+         * Backend override: `auto` (default), `cpu`, `metal`, `wgpu`. `auto`
+         * uses the GPU when the library was built with it and one is present.
+         */backend: String? = nil, 
+        /**
+         * Conversation window to allocate, in tokens (the KV cache). Unset =
+         * 8192, or 3072 for models above 1.5B parameters on iOS/Android to stay
+         * inside the per-app memory limit. Capped at what the model supports.
+         */contextLength: UInt32? = nil) {
         self.maxTokens = maxTokens
         self.temperature = temperature
         self.topP = topP
@@ -1117,6 +2168,7 @@ public struct GenerationOptions {
         self.repetitionPenalty = repetitionPenalty
         self.systemPrompt = systemPrompt
         self.backend = backend
+        self.contextLength = contextLength
     }
 }
 
@@ -1148,6 +2200,9 @@ extension GenerationOptions: Equatable, Hashable {
         if lhs.backend != rhs.backend {
             return false
         }
+        if lhs.contextLength != rhs.contextLength {
+            return false
+        }
         return true
     }
 
@@ -1159,6 +2214,7 @@ extension GenerationOptions: Equatable, Hashable {
         hasher.combine(repetitionPenalty)
         hasher.combine(systemPrompt)
         hasher.combine(backend)
+        hasher.combine(contextLength)
     }
 }
 
@@ -1177,7 +2233,8 @@ public struct FfiConverterTypeGenerationOptions: FfiConverterRustBuffer {
                 topK: FfiConverterOptionUInt32.read(from: &buf), 
                 repetitionPenalty: FfiConverterOptionFloat.read(from: &buf), 
                 systemPrompt: FfiConverterOptionString.read(from: &buf), 
-                backend: FfiConverterOptionString.read(from: &buf)
+                backend: FfiConverterOptionString.read(from: &buf), 
+                contextLength: FfiConverterOptionUInt32.read(from: &buf)
         )
     }
 
@@ -1189,6 +2246,7 @@ public struct FfiConverterTypeGenerationOptions: FfiConverterRustBuffer {
         FfiConverterOptionFloat.write(value.repetitionPenalty, into: &buf)
         FfiConverterOptionString.write(value.systemPrompt, into: &buf)
         FfiConverterOptionString.write(value.backend, into: &buf)
+        FfiConverterOptionUInt32.write(value.contextLength, into: &buf)
     }
 }
 
@@ -1449,6 +2507,10 @@ public enum SapientError: Swift.Error {
     )
     case Internal(reason: String
     )
+    /**
+     * The caller cancelled (e.g. a `DownloadListener` returned `false`).
+     */
+    case Cancelled
 }
 
 
@@ -1477,6 +2539,7 @@ public struct FfiConverterTypeSapientError: FfiConverterRustBuffer {
         case 4: return .Internal(
             reason: try FfiConverterString.read(from: &buf)
             )
+        case 5: return .Cancelled
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -1508,6 +2571,10 @@ public struct FfiConverterTypeSapientError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(4))
             FfiConverterString.write(reason, into: &buf)
             
+        
+        case .Cancelled:
+            writeInt(&buf, Int32(5))
+        
         }
     }
 }
@@ -1659,6 +2726,30 @@ fileprivate struct FfiConverterOptionUInt32: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionUInt64: FfiConverterRustBuffer {
+    typealias SwiftType = UInt64?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt64.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionFloat: FfiConverterRustBuffer {
     typealias SwiftType = Float?
 
@@ -1701,6 +2792,79 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
         case 1: return try FfiConverterString.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeBenchmarkListener: FfiConverterRustBuffer {
+    typealias SwiftType = BenchmarkListener?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeBenchmarkListener.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeBenchmarkListener.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeDownloadListener: FfiConverterRustBuffer {
+    typealias SwiftType = DownloadListener?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeDownloadListener.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeDownloadListener.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeBenchmarkRun: FfiConverterRustBuffer {
+    typealias SwiftType = [BenchmarkRun]
+
+    public static func write(_ value: [BenchmarkRun], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeBenchmarkRun.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [BenchmarkRun] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [BenchmarkRun]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeBenchmarkRun.read(from: &buf))
+        }
+        return seq
     }
 }
 
@@ -1800,6 +2964,39 @@ fileprivate func uniffiFutureContinuationCallback(handle: UInt64, pollResult: In
     }
 }
 /**
+ * Bytes this process can still allocate before the OS steps in: on iOS the
+ * remaining per-app allowance (`os_proc_available_memory`), elsewhere the
+ * available system memory. `None` if unknown (e.g. the iOS simulator, which
+ * enforces no limit). Check it before loading a large model.
+ */
+public func availableMemoryBytes() -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_sapient_ffi_fn_func_available_memory_bytes($0
+    )
+})
+}
+/**
+ * Download a catalog model without loading it, so it can be loaded later
+ * with no network: exactly the files `LlmSession::load` would fetch, plus a
+ * GGUF model's separately hosted tokenizer. Returns once everything is in
+ * the cache. A cancelled download fails with `SapientError::Cancelled`; its
+ * partial files stay and the next download resumes them.
+ */
+public func downloadModel(model: String, listener: DownloadListener?)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_sapient_ffi_fn_func_download_model(FfiConverterString.lower(model),FfiConverterOptionTypeDownloadListener.lower(listener)
+                )
+            },
+            pollFunc: ffi_sapient_ffi_rust_future_poll_void,
+            completeFunc: ffi_sapient_ffi_rust_future_complete_void,
+            freeFunc: ffi_sapient_ffi_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSapientError_lift
+        )
+}
+/**
  * The curated model catalog — every alias `LlmSession::load` accepts.
  */
 public func listModels() -> [ModelEntry]  {
@@ -1826,6 +3023,46 @@ public func loadSession(model: String, options: GenerationOptions)async throws  
             liftFunc: FfiConverterTypeLlmSession_lift,
             errorHandler: FfiConverterTypeSapientError_lift
         )
+}
+/**
+ * This process's current memory footprint in bytes. On iOS this is the
+ * `phys_footprint` value the OS compares against the app's memory limit
+ * (what Xcode's memory gauge shows): heap and GPU allocations count,
+ * memory-mapped model weights do not. `None` if the platform doesn't report it.
+ */
+public func memoryFootprintBytes() -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_sapient_ffi_fn_func_memory_footprint_bytes($0
+    )
+})
+}
+/**
+ * Bytes [`download_model`] will fetch for `model` (0 if unknown). One small
+ * metadata request; use it to show "1.06 GB to download" before starting.
+ */
+public func modelDownloadSize(model: String)async throws  -> UInt64  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_sapient_ffi_fn_func_model_download_size(FfiConverterString.lower(model)
+                )
+            },
+            pollFunc: ffi_sapient_ffi_rust_future_poll_u64,
+            completeFunc: ffi_sapient_ffi_rust_future_complete_u64,
+            freeFunc: ffi_sapient_ffi_rust_future_free_u64,
+            liftFunc: FfiConverterUInt64.lift,
+            errorHandler: FfiConverterTypeSapientError_lift
+        )
+}
+/**
+ * Highest footprint this process has reached, in bytes (includes the model
+ * load peak). `None` if unknown.
+ */
+public func peakMemoryFootprintBytes() -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_sapient_ffi_fn_func_peak_memory_footprint_bytes($0
+    )
+})
 }
 /**
  * Resolve a model alias (with fuzzy matching) to its HuggingFace repo id.
@@ -1902,10 +3139,25 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
+    if (uniffi_sapient_ffi_checksum_func_available_memory_bytes() != 50704) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_sapient_ffi_checksum_func_download_model() != 10099) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_sapient_ffi_checksum_func_list_models() != 56586) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_sapient_ffi_checksum_func_load_session() != 27015) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_sapient_ffi_checksum_func_memory_footprint_bytes() != 15421) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_sapient_ffi_checksum_func_model_download_size() != 49641) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_sapient_ffi_checksum_func_peak_memory_footprint_bytes() != 59003) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_sapient_ffi_checksum_func_resolve_alias() != 55233) {
@@ -1923,7 +3175,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_sapient_ffi_checksum_func_version() != 51660) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_sapient_ffi_checksum_method_benchmarklistener_on_run() != 63584) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_sapient_ffi_checksum_method_downloadlistener_on_progress() != 8006) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_sapient_ffi_checksum_method_llmsession_backend_label() != 36281) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_sapient_ffi_checksum_method_llmsession_benchmark() != 4917) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_sapient_ffi_checksum_method_llmsession_benchmark_async() != 2102) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_sapient_ffi_checksum_method_llmsession_chat() != 22486) {
@@ -1941,7 +3205,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_sapient_ffi_checksum_method_llmsession_chat_stream_async() != 44262) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_sapient_ffi_checksum_method_llmsession_context_length() != 49840) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_sapient_ffi_checksum_method_llmsession_is_mmap() != 61573) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_sapient_ffi_checksum_method_llmsession_load_time_ms() != 12650) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_sapient_ffi_checksum_method_llmsession_model() != 40496) {
@@ -1960,6 +3230,8 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
 
+    uniffiCallbackInitBenchmarkListener()
+    uniffiCallbackInitDownloadListener()
     uniffiCallbackInitTokenListener()
     return InitializationResult.ok
 }()
