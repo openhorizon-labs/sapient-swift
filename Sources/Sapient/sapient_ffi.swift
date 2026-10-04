@@ -2119,7 +2119,8 @@ public struct GenerationOptions {
      */
     public var systemPrompt: String?
     /**
-     * Backend override: `auto` (default), `cpu`, `metal`, `wgpu`. `auto`
+     * Backend override: `auto` (default), `cpu`, `metal`, `wgpu`, `hybrid`
+     * (GPU reads the prompt, CPU generates). `auto`
      * uses the GPU when the library was built with it and one is present.
      */
     public var backend: String?
@@ -2153,7 +2154,8 @@ public struct GenerationOptions {
          * Optional system prompt seeded at the start of the conversation.
          */systemPrompt: String? = nil, 
         /**
-         * Backend override: `auto` (default), `cpu`, `metal`, `wgpu`. `auto`
+         * Backend override: `auto` (default), `cpu`, `metal`, `wgpu`, `hybrid`
+         * (GPU reads the prompt, CPU generates). `auto`
          * uses the GPU when the library was built with it and one is present.
          */backend: String? = nil, 
         /**
