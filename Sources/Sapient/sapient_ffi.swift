@@ -2368,7 +2368,8 @@ public struct ModelEntry {
      */
     public var params: String
     /**
-     * Capability bucket: `chat`, `speech-to-text`, `text-to-speech`, `vision`.
+     * Capability bucket: `chat`, `speech-to-text`, `text-to-speech`, `vision`,
+     * `image` (text-to-image; not loadable by `LlmSession`).
      */
     public var category: String
     /**
@@ -2392,7 +2393,8 @@ public struct ModelEntry {
          * Approximate parameter count, for display (e.g. `0.5B`).
          */params: String, 
         /**
-         * Capability bucket: `chat`, `speech-to-text`, `text-to-speech`, `vision`.
+         * Capability bucket: `chat`, `speech-to-text`, `text-to-speech`, `vision`,
+         * `image` (text-to-image; not loadable by `LlmSession`).
          */category: String, 
         /**
          * Whether the repo is gated (needs an accepted license / HF token).
